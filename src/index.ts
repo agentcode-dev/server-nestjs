@@ -79,6 +79,7 @@ export {
 
 // Utils
 export {
+  coercePermissions,
   matchesPermission,
   resolveUserRoleSlug,
   resolveUserPermissions,

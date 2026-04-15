@@ -1,4 +1,5 @@
 import {
+  coercePermissions,
   matchesPermission,
   resolveUserRoleSlug,
   resolveUserPermissions,
@@ -95,6 +96,138 @@ describe('userHasPermission', () => {
       ],
     };
     expect(userHasPermission(user, 'posts.index', { id: 2 })).toBe(false);
+  });
+});
+
+// -------------------------------------------------------------------------
+// BP-008: JSON-string / comma-separated permissions (SQLite, older MySQL)
+// -------------------------------------------------------------------------
+describe('BP-008: coercePermissions', () => {
+  it('passes arrays through unchanged', () => {
+    expect(coercePermissions(['a.b', 'c.d'])).toEqual(['a.b', 'c.d']);
+    expect(coercePermissions([])).toEqual([]);
+  });
+
+  it('parses JSON-array strings', () => {
+    expect(coercePermissions('["posts.index","posts.show"]')).toEqual(['posts.index', 'posts.show']);
+    expect(coercePermissions('["*"]')).toEqual(['*']);
+    expect(coercePermissions('[]')).toEqual([]);
+  });
+
+  it('tolerates whitespace around JSON strings', () => {
+    expect(coercePermissions('  ["a"]  ')).toEqual(['a']);
+  });
+
+  it('splits comma-separated strings', () => {
+    expect(coercePermissions('posts.index, posts.show, comments.*')).toEqual([
+      'posts.index',
+      'posts.show',
+      'comments.*',
+    ]);
+  });
+
+  it('handles a single bare value (no comma)', () => {
+    expect(coercePermissions('posts.index')).toEqual(['posts.index']);
+  });
+
+  it('returns empty for null / undefined / empty / non-string non-array', () => {
+    expect(coercePermissions(null)).toEqual([]);
+    expect(coercePermissions(undefined)).toEqual([]);
+    expect(coercePermissions('')).toEqual([]);
+    expect(coercePermissions('   ')).toEqual([]);
+    expect(coercePermissions(123)).toEqual([]);
+    expect(coercePermissions({})).toEqual([]);
+  });
+
+  it('falls back to comma-split on malformed JSON', () => {
+    expect(coercePermissions('[bad json')).toEqual(['[bad json']);
+    expect(coercePermissions('[not, valid')).toEqual(['[not', 'valid']);
+  });
+
+  it('coerces non-string JSON array entries to strings', () => {
+    expect(coercePermissions('[1,2,3]')).toEqual(['1', '2', '3']);
+  });
+});
+
+describe('BP-008: matchesPermission accepts string inputs', () => {
+  it('matches when granted is a JSON-string array', () => {
+    expect(matchesPermission('posts.index', '["posts.index","posts.show"]')).toBe(true);
+    expect(matchesPermission('comments.store', '["posts.*"]')).toBe(false);
+  });
+
+  it('matches wildcards from a JSON-string', () => {
+    expect(matchesPermission('anything.else', '["*"]')).toBe(true);
+    expect(matchesPermission('posts.destroy', '["posts.*"]')).toBe(true);
+  });
+
+  it('matches from a comma-separated string', () => {
+    expect(matchesPermission('posts.index', 'posts.index, comments.*')).toBe(true);
+  });
+
+  it('still supports actual arrays (backwards compat)', () => {
+    expect(matchesPermission('posts.index', ['posts.index'])).toBe(true);
+  });
+});
+
+describe('BP-008: resolveUserPermissions handles JSON-string columns', () => {
+  it('parses ur.permissions when stored as a JSON string (SQLite pattern)', () => {
+    const user = {
+      userRoles: [
+        {
+          organizationId: 1,
+          permissions: '["projects.index","projects.show","tasks.*"]',
+        },
+      ],
+    };
+    expect(resolveUserPermissions(user, 1)).toEqual(['projects.index', 'projects.show', 'tasks.*']);
+  });
+
+  it('parses user.permissions when stored as a JSON string (non-tenant)', () => {
+    const user = { permissions: '["*"]' };
+    expect(resolveUserPermissions(user)).toEqual(['*']);
+  });
+
+  it('mixes string and array shapes across userRoles', () => {
+    const user = {
+      userRoles: [
+        { organizationId: 1, permissions: '["a.*"]' },
+        { organizationId: 1, permissions: ['b.*'] },
+      ],
+    };
+    expect(resolveUserPermissions(user, 1).sort()).toEqual(['a.*', 'b.*']);
+  });
+});
+
+describe('BP-008: userHasPermission with JSON-string stored permissions', () => {
+  it('passes end-to-end: seeded viewer with JSON-string permissions can index projects', () => {
+    // Reproduces PRD seed shape: bcrypt-authed user, permissions JSON-encoded
+    const dave = {
+      id: 4,
+      userRoles: [
+        {
+          organizationId: 1,
+          role: { slug: 'viewer' },
+          permissions:
+            '["projects.index","projects.show","tasks.index","tasks.show","comments.index","comments.show"]',
+        },
+      ],
+    };
+
+    expect(userHasPermission(dave, 'projects.index', { id: 1 })).toBe(true);
+    expect(userHasPermission(dave, 'projects.show', { id: 1 })).toBe(true);
+    // Should NOT have store
+    expect(userHasPermission(dave, 'projects.store', { id: 1 })).toBe(false);
+    // Other org → no permissions leak
+    expect(userHasPermission(dave, 'projects.index', { id: 99 })).toBe(false);
+  });
+
+  it('admin wildcard via JSON string grants everything in-org', () => {
+    const alice = {
+      id: 1,
+      userRoles: [{ organizationId: 1, role: { slug: 'admin' }, permissions: '["*"]' }],
+    };
+    expect(userHasPermission(alice, 'projects.destroy', { id: 1 })).toBe(true);
+    expect(userHasPermission(alice, 'comments.forceDelete', { id: 1 })).toBe(true);
   });
 });
 

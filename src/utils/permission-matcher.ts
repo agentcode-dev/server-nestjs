@@ -1,19 +1,57 @@
 /**
+ * Coerce a raw permissions value into a string array.
+ *
+ * BP-008 — databases without a native array type (SQLite, older MySQL) must
+ * store permissions as JSON strings or comma-separated lists. Laravel's
+ * Eloquent `$casts = ['permissions' => 'array']` decodes JSON on read;
+ * Prisma has no equivalent. This helper accepts all common shapes so the
+ * matcher works without a consumer-side hydration hack.
+ *
+ * Accepted inputs (in order of preference):
+ *   - string[]              → returned as-is
+ *   - JSON array string     → parsed
+ *   - comma-separated string → split & trimmed
+ *   - null / undefined / other → []
+ */
+export function coercePermissions(raw: unknown): string[] {
+  if (Array.isArray(raw)) return raw as string[];
+  if (typeof raw !== 'string') return [];
+  const trimmed = raw.trim();
+  if (trimmed === '') return [];
+  if (trimmed.startsWith('[')) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (Array.isArray(parsed)) return parsed.map(String);
+    } catch {
+      /* fall through to comma split */
+    }
+  }
+  return trimmed
+    .split(',')
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+}
+
+/**
  * Match a `{slug}.{action}` permission against a set of granted permissions.
  *
  * Supports wildcards identically to the Laravel version:
  *   - `*`              → grants everything
  *   - `{slug}.*`       → grants all actions on a specific slug
  *   - `{slug}.{act}`   → exact match
+ *
+ * The `granted` argument accepts anything `coercePermissions` accepts: a
+ * real array, a JSON-string array, or a comma-separated string.
  */
 export function matchesPermission(
   permission: string,
-  granted: string[] | null | undefined,
+  granted: string[] | string | null | undefined,
 ): boolean {
-  if (!granted || granted.length === 0) return false;
+  const list = coercePermissions(granted);
+  if (list.length === 0) return false;
   const slug = permission.split('.')[0] ?? '';
   const slugWildcard = `${slug}.*`;
-  for (const p of granted) {
+  for (const p of list) {
     if (p === permission || p === '*' || p === slugWildcard) return true;
   }
   return false;
@@ -49,13 +87,14 @@ export function resolveUserPermissions(user: any, organizationId?: number | stri
     for (const ur of userRoles) {
       const orgId = ur.organizationId ?? ur.organization_id;
       if (orgId === organizationId) {
-        const perms = ur.permissions ?? [];
-        for (const p of perms) all.push(p);
+        // BP-008: coerce into an array first — value may arrive as a raw
+        // JSON string from SQLite/MySQL or similar DBs without native arrays.
+        for (const p of coercePermissions(ur.permissions)) all.push(p);
       }
     }
     return all;
   }
-  return user.permissions ?? [];
+  return coercePermissions(user.permissions);
 }
 
 /**
