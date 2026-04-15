@@ -16,7 +16,11 @@ export class RouteGroupMiddleware implements NestMiddleware {
   constructor(private readonly config: AgentCodeConfigService) {}
 
   use(req: Request & Record<string, any>, _res: Response, next: NextFunction) {
-    const url = String(req.url ?? '').split('?')[0];
+    // BP-006: `req.url` is stripped to the middleware's mount-point when
+    // registered via NestModule.configure(consumer).forRoutes('*'), so it
+    // collapses to `/` for every request. `req.originalUrl` carries the full
+    // request URL verbatim — use that for prefix matching.
+    const url = String(req.originalUrl ?? req.url ?? '').split('?')[0];
     const groups = this.config.routeGroups();
     let match: { name: string; prefix: string } | null = null;
     for (const [name, group] of Object.entries(groups)) {
