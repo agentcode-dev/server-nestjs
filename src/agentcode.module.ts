@@ -265,6 +265,10 @@ export class AgentCodeModule implements NestModule {
 
   private static coreExports() {
     return [
+      // Injection tokens (BP-010 — surfaced for consumer middleware/services)
+      AGENTCODE_CONFIG,
+      AGENTCODE_PRISMA_CLIENT,
+      AGENTCODE_MODULE_OPTIONS,
       AgentCodeConfigService,
       PrismaService,
       ResourceService,
