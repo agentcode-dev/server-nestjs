@@ -119,9 +119,14 @@ jobs:
 
       - name: Upgrade npm to a version that supports Trusted Publishing
         # npm Trusted Publisher + OIDC requires npm >= 11.5.1. Node 22 ships
-        # with a compatible npm, but we pin an explicit upgrade so CI does
-        # not break if the Node image ships an older bundled npm.
-        run: npm install --global npm@latest
+        # with npm 10.x which is too old. `npm install -g npm@latest` has a
+        # long-standing self-upgrade bug where it leaves the install in a
+        # corrupt state (MODULE_NOT_FOUND: promise-retry). Using sudo with
+        # a pinned version installs fresh and sidesteps the partial-state
+        # problem.
+        run: |
+          sudo npm install -g npm@11.5.2
+          npm --version
 
       - name: Derive expected version
         id: version
