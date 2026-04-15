@@ -17,7 +17,7 @@
 #        Organization:  agentcode-dev
 #        Repository:    server-nestjs
 #        Workflow:      release.yml       ← must match this filename
-#        Environment:   release           ← matches the `environment:` below
+#        Environment:   (leave blank)     ← simpler: no env claim to match
 #   4. Save.
 #
 # Requirements:
@@ -99,7 +99,6 @@ jobs:
     name: Publish to npm
     needs: tests
     runs-on: ubuntu-latest
-    environment: release # matches "Environment" field in npm Trusted Publisher config
 
     permissions:
       contents: read
