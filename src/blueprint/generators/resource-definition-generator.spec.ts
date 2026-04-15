@@ -374,6 +374,35 @@ describe('ResourceDefinitionGenerator', () => {
       expect(match).not.toBeNull();
     });
 
+    it('non-nullable column WITH a default is optional on create (DB fills default)', () => {
+      const bp = makeArrayFormBlueprint();
+      bp.columns.push({
+        name: 'status',
+        type: 'string',
+        nullable: false,
+        unique: false,
+        index: false,
+        default: 'todo',
+        filterable: false,
+        sortable: false,
+        searchable: false,
+        precision: null,
+        scale: null,
+        foreignModel: null,
+      });
+      bp.permissions.admin.create_fields = ['title', 'status'];
+      const out = gen.generate(bp);
+      const storeMatch = out.match(/admin:\s*z\.object\(\{([\s\S]*?)\}\)/);
+      expect(storeMatch).not.toBeNull();
+      const body = storeMatch![1];
+      // title: no default + nullable:false → required
+      expect(body).toMatch(/title:\s*z\.string\(\)[ \t]*,/);
+      // status: has default → optional (.optional()). Won't trip up clients
+      // that rely on Prisma/DB defaults.
+      expect(body).toMatch(/status:\s*z\.string\(\)\.optional\(\)/);
+      expect(body).not.toMatch(/status:\s*z\.string\(\)[ \t]*,/);
+    });
+
     it('unknown field in array falls back to z.string().optional() (graceful)', () => {
       const bp = makeArrayFormBlueprint();
       bp.permissions.admin.create_fields = ['title', 'notAColumn'];

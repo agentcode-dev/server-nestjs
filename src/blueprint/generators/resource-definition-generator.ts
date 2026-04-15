@@ -177,8 +177,9 @@ export class ResourceDefinitionGenerator {
    * BP-003: derive presence from a column's `nullable` flag when no explicit
    * modifier was given.
    *
-   *   nullable: false (the Prisma default) → 'required' on create, 'sometimes' on update
-   *   nullable: true                       → 'nullable' on both surfaces
+   *   nullable: false, no default → 'required' on create, 'sometimes' on update
+   *   nullable: false, has default → 'sometimes' on both (DB will fill in)
+   *   nullable: true               → 'nullable' on both surfaces
    *
    * Fallback to 'optional' when the column isn't declared (unlikely but safe).
    */
@@ -188,6 +189,9 @@ export class ResourceDefinitionGenerator {
   ): string {
     if (!col) return 'optional';
     if (col.nullable) return 'nullable';
+    // BP-003 followup: columns with a default value can be omitted on create
+    // — the DB (or Prisma @default) supplies the value.
+    if (col.default !== null && col.default !== undefined) return 'sometimes';
     return surface === 'create_fields' ? 'required' : 'sometimes';
   }
 
