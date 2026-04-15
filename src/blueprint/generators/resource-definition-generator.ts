@@ -134,10 +134,19 @@ export class ResourceDefinitionGenerator {
       return `z.object({}).passthrough()`;
     }
 
-    // Array form (no presence modifiers) — treat all fields as optional
+    // Array form (no presence modifiers) — BP-003: infer required from
+    // the column's `nullable: false` declaration. This lets blueprints
+    // express "required title" purely via the column definition, without
+    // forcing the object form { title: required } on every permission.
     if (Array.isArray(fields)) {
       if (fields.length === 0) return `z.object({})`;
-      const entries = fields.map((f) => `    ${f}: ${this.zodTypeForColumn(f, columns, 'optional')}`);
+      const entries = fields.map((f) => {
+        const col = columns.find((c) => c.name === f);
+        // For create surface: non-nullable column → required; nullable → optional/nullable.
+        // For update surface: always optional (partial update semantics); keep nullable.
+        const presence = this.inferPresenceFromColumn(col, surface);
+        return `    ${f}: ${this.zodTypeForColumn(f, columns, presence)}`;
+      });
       return `z.object({\n${entries.join(',\n')},\n  })`;
     }
 
@@ -151,6 +160,24 @@ export class ResourceDefinitionGenerator {
     if (entries.length === 0) return `z.object({})`;
 
     return `z.object({\n${entries.join(',\n')},\n  })`;
+  }
+
+  /**
+   * BP-003: derive presence from a column's `nullable` flag when no explicit
+   * modifier was given.
+   *
+   *   nullable: false (the Prisma default) → 'required' on create, 'sometimes' on update
+   *   nullable: true                       → 'nullable' on both surfaces
+   *
+   * Fallback to 'optional' when the column isn't declared (unlikely but safe).
+   */
+  private inferPresenceFromColumn(
+    col: BlueprintColumn | undefined,
+    surface: 'create_fields' | 'update_fields',
+  ): string {
+    if (!col) return 'optional';
+    if (col.nullable) return 'nullable';
+    return surface === 'create_fields' ? 'required' : 'sometimes';
   }
 
   /**

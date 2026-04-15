@@ -201,4 +201,185 @@ describe('ResourceDefinitionGenerator', () => {
     const output = gen.generate(bp);
     expect(output).not.toContain('allowedFilters');
   });
+
+  // -----------------------------------------------------------------
+  // BP-003: array-form create_fields / update_fields must respect
+  // column.nullable so "required" can be expressed without the object
+  // form.
+  // -----------------------------------------------------------------
+  describe('BP-003: array-form field lists infer presence from column.nullable', () => {
+    function makeArrayFormBlueprint(): Blueprint {
+      return {
+        model: 'Project',
+        slug: 'projects',
+        table: 'projects',
+        source_file: 'projects.yaml',
+        options: {
+          belongs_to_organization: true,
+          soft_deletes: false,
+          audit_trail: false,
+          has_uuid: false,
+          owner: null,
+          except_actions: [],
+          pagination: false,
+          per_page: 25,
+        },
+        columns: [
+          // Required column: nullable:false (Prisma default)
+          {
+            name: 'title',
+            type: 'string',
+            nullable: false,
+            unique: false,
+            index: false,
+            default: null,
+            filterable: true,
+            sortable: true,
+            searchable: true,
+            precision: null,
+            scale: null,
+            foreignModel: null,
+          },
+          // Optional column: nullable:true
+          {
+            name: 'description',
+            type: 'text',
+            nullable: true,
+            unique: false,
+            index: false,
+            default: null,
+            filterable: false,
+            sortable: false,
+            searchable: false,
+            precision: null,
+            scale: null,
+            foreignModel: null,
+          },
+          // Required numeric column
+          {
+            name: 'budget',
+            type: 'float',
+            nullable: false,
+            unique: false,
+            index: false,
+            default: null,
+            filterable: false,
+            sortable: false,
+            searchable: false,
+            precision: null,
+            scale: null,
+            foreignModel: null,
+          },
+          // Nullable numeric column
+          {
+            name: 'sponsorId',
+            type: 'foreignId',
+            nullable: true,
+            unique: false,
+            index: false,
+            default: null,
+            filterable: false,
+            sortable: false,
+            searchable: false,
+            precision: null,
+            scale: null,
+            foreignModel: 'User',
+          },
+        ],
+        relationships: [],
+        permissions: {
+          admin: {
+            // Array form — the BP-003 scenario
+            actions: ['index', 'show', 'store', 'update'],
+            show_fields: ['*'],
+            create_fields: ['title', 'description', 'budget', 'sponsorId'],
+            update_fields: ['title', 'description', 'budget', 'sponsorId'],
+            hidden_fields: [],
+          },
+        },
+      };
+    }
+
+    it('non-nullable column in create_fields array emits a REQUIRED zod type (no .optional)', () => {
+      const out = gen.generate(makeArrayFormBlueprint());
+
+      // Expectations — STORE schema:
+      //   title: z.string()           (required, nullable:false column)
+      //   description: z.string().nullable().optional()  (nullable:true)
+      //   budget: z.number()          (required)
+      //   sponsorId: z.number().int().nullable().optional()  (nullable:true)
+
+      // Locate the admin store block
+      const storeMatch = out.match(/admin:\s*z\.object\(\{([\s\S]*?)\}\)/);
+      expect(storeMatch).not.toBeNull();
+      const storeBody = storeMatch![1];
+
+      expect(storeBody).toMatch(/title:\s*z\.string\(\)[ \t]*,/);
+      expect(storeBody).not.toMatch(/title:\s*z\.string\(\)\.optional\(\)/);
+
+      expect(storeBody).toMatch(/budget:\s*z\.number\(\)[ \t]*,/);
+      expect(storeBody).not.toMatch(/budget:\s*z\.number\(\)\.optional\(\)/);
+
+      expect(storeBody).toMatch(/description:\s*z\.string\(\)\.nullable\(\)\.optional\(\)/);
+      expect(storeBody).toMatch(/sponsorId:\s*z\.number\(\)\.int\(\)\.nullable\(\)\.optional\(\)/);
+    });
+
+    it('update_fields array makes everything optional (but nullable columns stay nullable)', () => {
+      const out = gen.generate(makeArrayFormBlueprint());
+
+      // Find the validationUpdate block specifically
+      const updateBlockMatch = out.match(
+        /validationUpdate[\s\S]*?admin:\s*z\.object\(\{([\s\S]*?)\}\)/,
+      );
+      expect(updateBlockMatch).not.toBeNull();
+      const updateBody = updateBlockMatch![1];
+
+      // Required-on-create columns become optional (sometimes) on update
+      expect(updateBody).toMatch(/title:\s*z\.string\(\)\.optional\(\)/);
+      expect(updateBody).toMatch(/budget:\s*z\.number\(\)\.optional\(\)/);
+
+      // Nullable columns stay nullable().optional() on update too
+      expect(updateBody).toMatch(/description:\s*z\.string\(\)\.nullable\(\)\.optional\(\)/);
+    });
+
+    it('object-form explicit modifiers still override column.nullable', () => {
+      const bp = makeArrayFormBlueprint();
+      // Override: explicitly mark title as nullable even though the column is required
+      bp.permissions.admin.create_fields = {
+        title: 'nullable',
+        budget: 'required',
+      };
+      const out = gen.generate(bp);
+      const storeMatch = out.match(/admin:\s*z\.object\(\{([\s\S]*?)\}\)/);
+      expect(storeMatch).not.toBeNull();
+      expect(storeMatch![1]).toMatch(/title:\s*z\.string\(\)\.nullable\(\)\.optional\(\)/);
+      expect(storeMatch![1]).toMatch(/budget:\s*z\.number\(\)[ \t]*,/);
+    });
+
+    it('wildcard ["*"] still maps to passthrough (backwards compat)', () => {
+      const bp = makeArrayFormBlueprint();
+      bp.permissions.admin.create_fields = ['*'];
+      const out = gen.generate(bp);
+      expect(out).toMatch(/admin:\s*z\.object\(\{\}\)\.passthrough\(\)/);
+    });
+
+    it('empty array → empty object (backwards compat)', () => {
+      const bp = makeArrayFormBlueprint();
+      bp.permissions.admin.create_fields = [];
+      const out = gen.generate(bp);
+      // Should emit `admin: z.object({})` (not passthrough, not syntax error)
+      const match = out.match(/admin:\s*z\.object\(\{\}\)[,\s]/);
+      expect(match).not.toBeNull();
+    });
+
+    it('unknown field in array falls back to z.string().optional() (graceful)', () => {
+      const bp = makeArrayFormBlueprint();
+      bp.permissions.admin.create_fields = ['title', 'notAColumn'];
+      const out = gen.generate(bp);
+      const storeMatch = out.match(/admin:\s*z\.object\(\{([\s\S]*?)\}\)/);
+      expect(storeMatch![1]).toMatch(/notAColumn:\s*z\.string\(\)\.optional\(\)/);
+      // Real column still gets the required treatment
+      expect(storeMatch![1]).toMatch(/title:\s*z\.string\(\)[ \t]*,/);
+    });
+  });
 });
