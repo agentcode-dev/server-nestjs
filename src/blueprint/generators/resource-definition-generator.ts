@@ -86,6 +86,10 @@ export class ResourceDefinitionGenerator {
     lines.push(`  belongsToOrganization: ${blueprint.options.belongs_to_organization},`);
     lines.push(`  softDeletes: ${blueprint.options.soft_deletes},`);
     lines.push(`  hasAuditTrail: ${blueprint.options.audit_trail},`);
+    if (blueprint.options.has_uuid) {
+      // BP-005: surface the flag so ResourceService.castId preserves string IDs
+      lines.push(`  hasUuid: true,`);
+    }
 
     if (blueprint.options.except_actions?.length > 0) {
       lines.push(`  exceptActions: ${JSON.stringify(blueprint.options.except_actions)},`);

@@ -41,7 +41,13 @@ export class SeederGenerator {
 
     for (let i = 0; i < rows.length; i++) {
       lines.push(`  await prisma.${prismaModel}.upsert({`);
-      lines.push(`    where: { id: ${i + 1} },`);
+      // BP-005: UUID-PK models need string ids, not integer ids.
+      if (blueprint.options.has_uuid) {
+        const uuid = `00000000-0000-0000-0000-00000000000${i + 1}`;
+        lines.push(`    where: { id: '${uuid}' },`);
+      } else {
+        lines.push(`    where: { id: ${i + 1} },`);
+      }
       lines.push(`    update: {},`);
       lines.push(`    create: ${this.formatObject(rows[i], 4)},`);
       lines.push(`  });`);
@@ -67,7 +73,12 @@ export class SeederGenerator {
   // -------------------------------------------------------------------------
 
   private buildRow(blueprint: Blueprint, index: number): Record<string, unknown> {
-    const row: Record<string, unknown> = { id: index };
+    // BP-005: UUID-PK models use deterministic UUID strings so seed is
+    // idempotent (upsert where id:'00...001' etc.).
+    const id = blueprint.options.has_uuid
+      ? `00000000-0000-0000-0000-00000000000${index}`
+      : index;
+    const row: Record<string, unknown> = { id };
 
     if (blueprint.options.belongs_to_organization) {
       row['organizationId'] = 1;

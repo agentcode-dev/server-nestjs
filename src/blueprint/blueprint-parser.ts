@@ -10,6 +10,8 @@ export interface BlueprintOptions {
   belongs_to_organization: boolean;
   soft_deletes: boolean;
   audit_trail: boolean;
+  /** When true, primary key is `String @default(uuid())` instead of `Int @default(autoincrement())`. */
+  has_uuid: boolean;
   owner: string | null;
   except_actions: string[];
   pagination: boolean;
@@ -133,6 +135,7 @@ export class BlueprintParser {
       belongs_to_organization: Boolean(opts['belongs_to_organization'] ?? false),
       soft_deletes: Boolean(opts['soft_deletes'] ?? true),
       audit_trail: Boolean(opts['audit_trail'] ?? false),
+      has_uuid: Boolean(opts['has_uuid'] ?? false),
       owner: (opts['owner'] as string) ?? null,
       except_actions: Array.isArray(opts['except_actions']) ? (opts['except_actions'] as string[]) : [],
       pagination: Boolean(opts['pagination'] ?? false),

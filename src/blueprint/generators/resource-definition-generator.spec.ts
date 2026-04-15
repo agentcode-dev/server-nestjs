@@ -15,6 +15,7 @@ function makeBlueprint(overrides: Partial<Blueprint> = {}): Blueprint {
       belongs_to_organization: true,
       soft_deletes: true,
       audit_trail: true,
+      has_uuid: false,
       owner: null,
       except_actions: [],
       pagination: false,

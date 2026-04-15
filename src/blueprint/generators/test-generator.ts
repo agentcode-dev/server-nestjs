@@ -33,6 +33,12 @@ export class TestGenerator {
     const createPayload = this.buildCreatePayload(blueprint);
     const updatePayload = this.buildUpdatePayload(blueprint);
     const adminPerms = this.permissionsFor(slug, permissions[adminRole]);
+    // BP-005: UUID-PK models use strings in Prisma `where: { id: '...' }`.
+    const sampleId: any = options.has_uuid
+      ? sampleRow.id // already UUID from buildSampleRow
+      : 1;
+    const idLiteral = options.has_uuid ? `'${sampleId}'` : '1';
+    const idRouteParam = options.has_uuid ? `'${sampleId}'` : "'1'";
 
     const lines: string[] = [];
     const push = (s = '') => lines.push(s);
@@ -94,11 +100,11 @@ export class TestGenerator {
     push(`  });`);
     push(``);
     push(`  it('show returns a single record by id', async () => {`);
-    push(`    const env = buildEnv(makeConfig(), { ${modelKey}: [{ ...sampleRow, id: 1 }] });`);
+    push(`    const env = buildEnv(makeConfig(), { ${modelKey}: [{ ...sampleRow, id: ${idLiteral} }] });`);
     push(`    const user = makeUser('${adminRole}', adminPerms);`);
     push(`    const req = { user, organization: { id: 1 } } as any;`);
-    push(`    const res: any = await env.controllers.global.show('${slug}', '1', {}, req);`);
-    push(`    expect(res).toMatchObject({ id: 1 });`);
+    push(`    const res: any = await env.controllers.global.show('${slug}', ${idRouteParam}, {}, req);`);
+    push(`    expect(res).toMatchObject({ id: ${idLiteral} });`);
     push(`  });`);
     push(``);
     push(`  it('store persists a new record', async () => {`);
@@ -112,19 +118,19 @@ export class TestGenerator {
     push(`  });`);
     push(``);
     push(`  it('update modifies an existing record', async () => {`);
-    push(`    const env = buildEnv(makeConfig(), { ${modelKey}: [{ ...sampleRow, id: 1 }] });`);
+    push(`    const env = buildEnv(makeConfig(), { ${modelKey}: [{ ...sampleRow, id: ${idLiteral} }] });`);
     push(`    const user = makeUser('${adminRole}', adminPerms);`);
     push(`    const req = { user, organization: { id: 1 } } as any;`);
     push(`    const body = ${JSON.stringify(updatePayload)};`);
-    push(`    const res: any = await env.controllers.global.update('${slug}', '1', body, req);`);
+    push(`    const res: any = await env.controllers.global.update('${slug}', ${idRouteParam}, body, req);`);
     push(`    expect(res).toBeDefined();`);
     push(`  });`);
     push(``);
     push(`  it('destroy removes (or soft-deletes) the record', async () => {`);
-    push(`    const env = buildEnv(makeConfig(), { ${modelKey}: [{ ...sampleRow, id: 1 }] });`);
+    push(`    const env = buildEnv(makeConfig(), { ${modelKey}: [{ ...sampleRow, id: ${idLiteral} }] });`);
     push(`    const user = makeUser('${adminRole}', adminPerms);`);
     push(`    const req = { user, organization: { id: 1 } } as any;`);
-    push(`    await env.controllers.global.destroy('${slug}', '1', req);`);
+    push(`    await env.controllers.global.destroy('${slug}', ${idRouteParam}, req);`);
     push(`    const rows = env.client._data.${modelKey} ?? [];`);
     push(`    const active = rows.filter((r: any) => !r.deletedAt);`);
     push(`    expect(active).toHaveLength(0);`);
@@ -161,12 +167,12 @@ export class TestGenerator {
       push(``);
       push(`  it('does not return records belonging to another organization', async () => {`);
       push(`    const env = buildEnv(makeConfig(), {`);
-      push(`      ${modelKey}: [{ ...sampleRow, id: 1, organizationId: 99 }],`);
+      push(`      ${modelKey}: [{ ...sampleRow, id: ${idLiteral}, organizationId: 99 }],`);
       push(`    });`);
       push(`    const user = makeUser('${adminRole}', adminPerms, 1);`);
       push(`    const req = { user, organization: { id: 1 } } as any;`);
       push(`    await expect(`);
-      push(`      env.controllers.global.show('${slug}', '1', {}, req),`);
+      push(`      env.controllers.global.show('${slug}', ${idRouteParam}, {}, req),`);
       push(`    ).rejects.toMatchObject({ code: 'NOT_FOUND' });`);
       push(`  });`);
       push(``);
@@ -188,7 +194,12 @@ export class TestGenerator {
   }
 
   private buildSampleRow(blueprint: Blueprint): Record<string, unknown> {
-    const row: Record<string, unknown> = { id: 1 };
+    // BP-005: UUID-PK models emit a deterministic UUID sample so generated
+    // tests pass Prisma's `where: { id: '...' }` validation.
+    const id: number | string = blueprint.options.has_uuid
+      ? '00000000-0000-0000-0000-000000000001'
+      : 1;
+    const row: Record<string, unknown> = { id };
     for (const col of blueprint.columns) {
       row[col.name] = this.sampleValue(col.type, col.values);
     }

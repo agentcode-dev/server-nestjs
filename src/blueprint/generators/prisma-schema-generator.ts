@@ -68,7 +68,12 @@ export class PrismaSchemaGenerator {
     const lines: string[] = [];
 
     // -- id ------------------------------------------------------------------
-    lines.push('  id        Int      @id @default(autoincrement())');
+    // BP-005: honor `has_uuid: true` → String primary key seeded from uuid().
+    if (blueprint.options.has_uuid) {
+      lines.push('  id        String   @id @default(uuid())');
+    } else {
+      lines.push('  id        Int      @id @default(autoincrement())');
+    }
 
     // -- organizationId FK ---------------------------------------------------
     if (blueprint.options.belongs_to_organization) {
