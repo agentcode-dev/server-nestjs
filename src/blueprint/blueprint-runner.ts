@@ -75,9 +75,14 @@ export class BlueprintRunner {
       return result;
     }
 
+    // Filter rules:
+    //   - .yaml / .yml only
+    //   - Skip files whose basename starts with `_` — those are shared anchor /
+    //     partial files (e.g. `_roles.yaml`) that are imported into other
+    //     blueprints but are not themselves model definitions. See BP-009.
     const yamlFiles = fs
       .readdirSync(blueprintsDir)
-      .filter((f) => f.endsWith('.yaml') || f.endsWith('.yml'))
+      .filter((f) => (f.endsWith('.yaml') || f.endsWith('.yml')) && !f.startsWith('_'))
       .sort();
 
     if (yamlFiles.length === 0) {

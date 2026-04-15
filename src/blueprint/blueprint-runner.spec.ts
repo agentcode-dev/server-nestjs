@@ -206,4 +206,68 @@ describe('BlueprintRunner', () => {
     const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
     expect(manifest.files['post.yaml']).toBeDefined();
   });
+
+  // --------------------------------------------------------------------
+  // BP-009: skip leading-underscore files (shared anchors / partials)
+  // --------------------------------------------------------------------
+  describe('BP-009: _*.yaml files are skipped (not errored)', () => {
+    const SHARED_ROLES_YAML = `
+owner:
+  actions: ["*"]
+  show_fields: "*"
+admin:
+  actions: [index, show, store]
+`.trim();
+
+    it('silently skips _roles.yaml (no model key) without reporting an error', async () => {
+      const root = makeProject({
+        '_roles.yaml': SHARED_ROLES_YAML,
+        'post.yaml': VALID_POST_YAML,
+      });
+      const result = await runner.run({ projectRoot: root, silent: true });
+
+      expect(result.errors).toHaveLength(0);
+      expect(result.processed).toEqual(['post.yaml']);
+      // _roles.yaml should never show up in any result bucket
+      expect(result.processed).not.toContain('_roles.yaml');
+      expect(result.skipped).not.toContain('_roles.yaml');
+    });
+
+    it('skips every file that starts with underscore regardless of content', async () => {
+      const root = makeProject({
+        '_shared.yaml': 'anything: goes here',
+        '_common.yaml': SHARED_ROLES_YAML,
+        '_base.yml': 'foo: bar',
+        'post.yaml': VALID_POST_YAML,
+        'article.yaml': VALID_ARTICLE_YAML,
+      });
+      const result = await runner.run({ projectRoot: root, silent: true });
+
+      expect(result.errors).toHaveLength(0);
+      expect(result.processed.sort()).toEqual(['article.yaml', 'post.yaml']);
+    });
+
+    it('returns empty when directory has only _*.yaml files', async () => {
+      const root = makeProject({ '_roles.yaml': SHARED_ROLES_YAML });
+      const result = await runner.run({ projectRoot: root, silent: true });
+      expect(result.errors).toHaveLength(0);
+      expect(result.processed).toHaveLength(0);
+      expect(result.skipped).toHaveLength(0);
+    });
+
+    it('still applies --model filter alongside underscore skipping', async () => {
+      const root = makeProject({
+        '_roles.yaml': SHARED_ROLES_YAML,
+        'post.yaml': VALID_POST_YAML,
+        'article.yaml': VALID_ARTICLE_YAML,
+      });
+      const result = await runner.run({
+        projectRoot: root,
+        silent: true,
+        model: 'Post',
+      });
+      expect(result.processed).toEqual(['post.yaml']);
+      expect(result.skipped).toEqual(['article.yaml']);
+    });
+  });
 });
