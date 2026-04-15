@@ -269,6 +269,89 @@ describe('GlobalController (integration)', () => {
     expect((res as any).title).toBe('ok');
   });
 
+  // -------------------------------------------------------------------
+  // BP-007 integration: GlobalController threads {user, organization}
+  // through SerializerService so role-keyed policies work end-to-end.
+  // -------------------------------------------------------------------
+  describe('BP-007: role-keyed policy whitelist works through GlobalController', () => {
+    class ProjectPolicy extends ResourcePolicy {
+      permittedAttributesForShow(user: any, org?: any): string[] {
+        if (this.hasRole(user, 'admin', org)) return ['*'];
+        if (this.hasRole(user, 'manager', org)) return ['id', 'title', 'budget'];
+        if (this.hasRole(user, 'viewer', org)) return ['id', 'title'];
+        return [];
+      }
+      hiddenAttributesForShow(user: any, org?: any): string[] {
+        if (this.hasRole(user, 'viewer', org)) return ['budget', 'internalNotes'];
+        return [];
+      }
+    }
+    const cfg = {
+      models: {
+        projects: {
+          model: 'project',
+          policy: ProjectPolicy,
+          belongsToOrganization: true,
+          paginationEnabled: false,
+        },
+      },
+    };
+    const fullProject = {
+      id: 1,
+      title: 'Website',
+      budget: 50000,
+      internalNotes: 'secret',
+      organizationId: 1,
+    };
+    const makeCtx = (roleSlug: string, orgId = 1) => ({
+      user: {
+        id: 1,
+        userRoles: [
+          {
+            organizationId: orgId,
+            role: { slug: roleSlug },
+            permissions: ['*'],
+          },
+        ],
+      },
+      organization: { id: 1, slug: 'acme' },
+    });
+
+    it('admin (role resolved via org) sees the full project on show', async () => {
+      const env = buildEnv(cfg, { project: [fullProject] });
+      const res: any = await env.controllers.global.show('projects', '1', {}, makeCtx('admin') as any);
+      expect(res).toMatchObject({
+        id: 1,
+        title: 'Website',
+        budget: 50000,
+        internalNotes: 'secret',
+      });
+    });
+
+    it('admin sees all fields on index too (serializeMany threads org)', async () => {
+      const env = buildEnv(cfg, { project: [fullProject] });
+      const res: any = await env.controllers.global.index('projects', {}, makeCtx('admin') as any);
+      expect(res.data[0]).toMatchObject({
+        id: 1,
+        title: 'Website',
+        budget: 50000,
+        internalNotes: 'secret',
+      });
+    });
+
+    it('viewer sees only id + title', async () => {
+      const env = buildEnv(cfg, { project: [fullProject] });
+      const res: any = await env.controllers.global.show('projects', '1', {}, makeCtx('viewer') as any);
+      expect(res).toEqual({ id: 1, title: 'Website' });
+    });
+
+    it('manager sees budget but not internalNotes on index', async () => {
+      const env = buildEnv(cfg, { project: [fullProject] });
+      const res: any = await env.controllers.global.index('projects', {}, makeCtx('manager') as any);
+      expect(res.data[0]).toEqual({ id: 1, title: 'Website', budget: 50000 });
+    });
+  });
+
   it('exceptActions blocks a disabled action with ACTION_DISABLED code', async () => {
     const env = buildEnv({
       models: {

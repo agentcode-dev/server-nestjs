@@ -29,7 +29,8 @@ export class HiddenColumnsInterceptor implements NestInterceptor {
     const modelSlug = req.params?.modelSlug;
     const reg = modelSlug ? this.config.model(modelSlug) : null;
     if (!reg) return next.handle();
-    const user = req.user;
+    // BP-007: pass {user, organization} so role-keyed policies resolve properly.
+    const ctx = { user: req.user, organization: req.organization };
 
     return next.handle().pipe(
       map((body: any) => {
@@ -38,16 +39,16 @@ export class HiddenColumnsInterceptor implements NestInterceptor {
         if (body.__agentcodePaginated) {
           return {
             ...body,
-            items: this.serializer.serializeMany(body.items, reg, user),
+            items: this.serializer.serializeMany(body.items, reg, ctx),
           };
         }
         if (body.data && Array.isArray(body.data)) {
-          return { ...body, data: this.serializer.serializeMany(body.data, reg, user) };
+          return { ...body, data: this.serializer.serializeMany(body.data, reg, ctx) };
         }
         if (Array.isArray(body)) {
-          return this.serializer.serializeMany(body, reg, user);
+          return this.serializer.serializeMany(body, reg, ctx);
         }
-        return this.serializer.serializeOne(body, reg, user);
+        return this.serializer.serializeOne(body, reg, ctx);
       }),
     );
   }

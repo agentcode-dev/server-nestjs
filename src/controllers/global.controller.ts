@@ -85,7 +85,7 @@ export class GlobalController {
       organization: req.organization,
       onlyTrashed: true,
     });
-    const items = this.serializer.serializeMany(result.items, reg, req.user);
+    const items = this.serializer.serializeMany(result.items, reg, { user: req.user, organization: req.organization });
     if (result.total != null) {
       return paginated(items, result.total, result.page!, result.perPage!);
     }
@@ -104,7 +104,7 @@ export class GlobalController {
       user: req.user,
       organization: req.organization,
     });
-    const items = this.serializer.serializeMany(result.items, reg, req.user);
+    const items = this.serializer.serializeMany(result.items, reg, { user: req.user, organization: req.organization });
     if (result.total != null) {
       return paginated(items, result.total, result.page!, result.perPage!);
     }
@@ -125,7 +125,7 @@ export class GlobalController {
       organization: req.organization,
     });
     if (!record) throw AgentCodeException.notFound();
-    return this.serializer.serializeOne(record, reg, req.user);
+    return this.serializer.serializeOne(record, reg, { user: req.user, organization: req.organization });
   }
 
   @Post(':modelSlug')
@@ -164,7 +164,7 @@ export class GlobalController {
         excludeFields: reg.auditExclude,
       });
     }
-    return this.serializer.serializeOne(record, reg, req.user);
+    return this.serializer.serializeOne(record, reg, { user: req.user, organization: req.organization });
   }
 
   @Put(':modelSlug/:id')
@@ -216,7 +216,7 @@ export class GlobalController {
         });
       }
     }
-    return this.serializer.serializeOne(record, reg, req.user);
+    return this.serializer.serializeOne(record, reg, { user: req.user, organization: req.organization });
   }
 
   @Delete(':modelSlug/:id')
