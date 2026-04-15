@@ -168,4 +168,75 @@ describe('ValidationService', () => {
     expect(res.errors?.title).toBeTruthy();
     expect(res.errors?.age).toBeTruthy();
   });
+
+  // -------------------------------------------------------------------
+  // BP-007 completion: permittedAttributesFor{Create,Update} receive
+  // both user AND organization so role-keyed policies can resolve the
+  // active role. The original BP-007 fix covered SerializerService only;
+  // this path went unnoticed until the TaskFlow reference hit it.
+  // -------------------------------------------------------------------
+  describe('BP-007 (validation path): org is passed to policy attribute methods', () => {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { ResourcePolicy: BasePolicy } = require('../policies/resource-policy');
+
+    class AdminOnlyPolicy extends (BasePolicy as any) {
+      permittedAttributesForCreate(user: any, org?: any): string[] {
+        if (this.hasRole(user, 'admin', org)) return ['title', 'budget'];
+        return [];
+      }
+      permittedAttributesForUpdate(user: any, org?: any): string[] {
+        if (this.hasRole(user, 'admin', org)) return ['title'];
+        return [];
+      }
+    }
+
+    const reg: ModelRegistration = {
+      model: 'project',
+      policy: AdminOnlyPolicy as any,
+      validation: z.object({ title: z.string(), budget: z.number().optional() }),
+    };
+
+    const adminOfOrg1 = {
+      id: 1,
+      userRoles: [{ organizationId: 1, role: { slug: 'admin' }, permissions: ['*'] }],
+    };
+
+    it('admin create is ALLOWED when org is threaded through', () => {
+      const res = v.validateForAction(
+        { title: 'Project A', budget: 100 },
+        reg,
+        { action: 'store', user: adminOfOrg1, organization: { id: 1 } },
+      );
+      expect(res.valid).toBe(true);
+    });
+
+    it('admin update is ALLOWED when org is threaded through', () => {
+      const res = v.validateForAction(
+        { title: 'New Title' },
+        reg,
+        { action: 'update', user: adminOfOrg1, organization: { id: 1 } },
+      );
+      expect(res.valid).toBe(true);
+    });
+
+    it('admin in a DIFFERENT org is rejected (role check fails with wrong org)', () => {
+      const res = v.validateForAction(
+        { title: 'Project A' },
+        reg,
+        { action: 'store', user: adminOfOrg1, organization: { id: 99 } },
+      );
+      expect(res.valid).toBe(false);
+      expect(res.forbiddenFields).toContain('title');
+    });
+
+    it('omitting organization collapses to "no role" (documents the pre-fix failure mode)', () => {
+      const res = v.validateForAction(
+        { title: 'Project A' },
+        reg,
+        { action: 'store', user: adminOfOrg1 }, // no organization
+      );
+      expect(res.valid).toBe(false);
+      expect(res.forbiddenFields).toContain('title');
+    });
+  });
 });

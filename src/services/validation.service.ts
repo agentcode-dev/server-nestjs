@@ -201,10 +201,13 @@ export class ValidationService {
   private resolvePermittedFields(reg: ModelRegistration, ctx: ValidationContext): string[] {
     if (!reg.policy) return ['*'];
     const policy = new reg.policy();
+    // BP-007 completion: pass organization so policy.hasRole(user, role, org)
+    // can resolve the active role (same reasoning as SerializerService —
+    // this path was missed in the original BP-007 fix).
     if (ctx.action === 'store') {
-      return policy.permittedAttributesForCreate(ctx.user) ?? ['*'];
+      return policy.permittedAttributesForCreate(ctx.user, ctx.organization) ?? ['*'];
     }
-    return policy.permittedAttributesForUpdate(ctx.user) ?? ['*'];
+    return policy.permittedAttributesForUpdate(ctx.user, ctx.organization) ?? ['*'];
   }
 
   private formatErrors(err: z.ZodError): Record<string, string[]> {
