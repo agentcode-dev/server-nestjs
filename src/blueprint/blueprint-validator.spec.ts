@@ -17,6 +17,7 @@ function makeBlueprint(overrides: Partial<Blueprint> = {}): Blueprint {
       audit_trail: false,
       has_uuid: false,
       owner: null,
+      owner_chain: null,
       except_actions: [],
       pagination: false,
       per_page: 25,
@@ -341,6 +342,7 @@ describe('BlueprintValidator', () => {
         audit_trail: false,
       has_uuid: false,
         owner: null,
+      owner_chain: null,
         except_actions: ['fetch'], // invalid
         pagination: false,
         per_page: 25,

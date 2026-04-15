@@ -91,6 +91,17 @@ export class ResourceDefinitionGenerator {
       lines.push(`  hasUuid: true,`);
     }
 
+    // BP-004: emit `owner` / `fkConstraints` from YAML when declared so
+    // ValidationService.verifyTenantFks (and the FK chain walker) can do
+    // cross-tenant validation without a hand-authored override.
+    const ownerStr = blueprint.options.owner_chain ?? blueprint.options.owner ?? null;
+    if (ownerStr) {
+      lines.push(`  owner: ${JSON.stringify(ownerStr)},`);
+    }
+    if (blueprint.fk_constraints?.length > 0) {
+      lines.push(`  fkConstraints: ${JSON.stringify(blueprint.fk_constraints)},`);
+    }
+
     if (blueprint.options.except_actions?.length > 0) {
       lines.push(`  exceptActions: ${JSON.stringify(blueprint.options.except_actions)},`);
     }

@@ -12,10 +12,30 @@ export interface BlueprintOptions {
   audit_trail: boolean;
   /** When true, primary key is `String @default(uuid())` instead of `Int @default(autoincrement())`. */
   has_uuid: boolean;
+  /**
+   * BP-004: legacy single-hop owner. Kept for backwards compat; prefer
+   * `owner_chain` for multi-hop indirect tenancy.
+   */
   owner: string | null;
+  /**
+   * BP-004: dot-notated chain from this model to its tenant-scoped ancestor.
+   * Example for Comment → Task → Project → Organization:
+   *   owner_chain: task.project
+   * The last segment must name a model with `belongs_to_organization: true`.
+   */
+  owner_chain: string | null;
   except_actions: string[];
   pagination: boolean;
   per_page: number;
+}
+
+/**
+ * BP-004: declares an FK column that must resolve to a record inside the
+ * current organization. Consumed by ValidationService.verifyTenantFks.
+ */
+export interface BlueprintFkConstraint {
+  field: string;
+  model: string;
 }
 
 export interface BlueprintColumn {
@@ -57,6 +77,8 @@ export interface Blueprint {
   columns: BlueprintColumn[];
   relationships: BlueprintRelationship[];
   permissions: Record<string, BlueprintPermission>;
+  /** BP-004: explicit FK → model constraints for cross-tenant validation. */
+  fk_constraints?: BlueprintFkConstraint[];
   source_file: string;
 }
 
@@ -88,6 +110,7 @@ export class BlueprintParser {
       columns: this.normalizeColumns(raw['columns'] ?? {}),
       relationships: this.normalizeRelationships(raw['relationships'] ?? {}),
       permissions: this.normalizePermissions(raw['permissions'] ?? {}),
+      fk_constraints: this.normalizeFkConstraints(raw['fk_constraints'] ?? []),
       source_file: require('path').basename(filePath),
     };
   }
@@ -137,10 +160,71 @@ export class BlueprintParser {
       audit_trail: Boolean(opts['audit_trail'] ?? false),
       has_uuid: Boolean(opts['has_uuid'] ?? false),
       owner: (opts['owner'] as string) ?? null,
+      owner_chain: this.normalizeOwnerChain(opts['owner_chain']),
       except_actions: Array.isArray(opts['except_actions']) ? (opts['except_actions'] as string[]) : [],
       pagination: Boolean(opts['pagination'] ?? false),
       per_page: Number(opts['per_page'] ?? 25),
     };
+  }
+
+  /**
+   * Normalize various `owner_chain` YAML shapes into a single dot-notated
+   * string or null. Supports:
+   *
+   *   owner_chain: task.project          → 'task.project'
+   *   owner_chain: [task, project]       → 'task.project'
+   *   owner_chain: null / absent          → null
+   *   owner_chain: ''                     → null
+   */
+  private normalizeOwnerChain(raw: unknown): string | null {
+    if (raw == null) return null;
+    if (typeof raw === 'string') {
+      const trimmed = raw.trim();
+      return trimmed.length > 0 ? trimmed : null;
+    }
+    if (Array.isArray(raw)) {
+      const parts = raw.map((s) => String(s).trim()).filter((s) => s.length > 0);
+      return parts.length > 0 ? parts.join('.') : null;
+    }
+    return null;
+  }
+
+  /**
+   * Normalize the `fk_constraints:` YAML section into a flat array of
+   * { field, model } tuples. Accepts two shapes:
+   *
+   *   fk_constraints:
+   *     - field: projectId
+   *       model: project
+   *     - field: assignedTo
+   *       model: user
+   *
+   *   fk_constraints:
+   *     projectId: project       ← object shorthand
+   *     assignedTo: user
+   */
+  private normalizeFkConstraints(raw: unknown): BlueprintFkConstraint[] {
+    if (Array.isArray(raw)) {
+      const out: BlueprintFkConstraint[] = [];
+      for (const entry of raw) {
+        if (!entry || typeof entry !== 'object') continue;
+        const e = entry as Record<string, unknown>;
+        const field = (e['field'] as string) ?? '';
+        const model = (e['model'] as string) ?? '';
+        if (field && model) out.push({ field, model });
+      }
+      return out;
+    }
+    if (raw && typeof raw === 'object') {
+      const out: BlueprintFkConstraint[] = [];
+      for (const [field, model] of Object.entries(raw as Record<string, unknown>)) {
+        if (field && typeof model === 'string' && model.length > 0) {
+          out.push({ field, model });
+        }
+      }
+      return out;
+    }
+    return [];
   }
 
   private normalizeColumns(raw: unknown): BlueprintColumn[] {
