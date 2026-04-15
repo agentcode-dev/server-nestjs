@@ -39,6 +39,10 @@ export { HiddenColumnsInterceptor } from './interceptors/hidden-columns.intercep
 // Middleware
 export { ResolveOrganizationMiddleware } from './middleware/resolve-organization.middleware';
 export { RouteGroupMiddleware } from './middleware/route-group.middleware';
+export {
+  createTenantRouteRewrite,
+  type TenantRouteRewriteOptions,
+} from './middleware/tenant-route-rewrite';
 
 // Controllers (consuming apps can re-export under their own routes)
 export { GlobalController } from './controllers/global.controller';
