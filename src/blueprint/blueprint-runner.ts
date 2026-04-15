@@ -169,13 +169,18 @@ export class BlueprintRunner {
     const generated: string[] = [];
     const model = blueprint.model;
 
-    // 1. Prisma schema fragment — appended to prisma/schema.prisma
+    // 1. Prisma schema fragment — appended to prisma/schema.prisma.
+    //    BP-002: skip when the model already exists in the consumer's
+    //    schema (hand-authored). Detect SQLite provider so decimals map to
+    //    Float instead of unsupported Decimal.
     const prismaPath = path.join(projectRoot, 'prisma', 'schema.prisma');
-    const prismaFragment = this.prismaGen.generate(blueprint);
-    if (!dryRun) {
+    const existingSchema = fs.existsSync(prismaPath) ? fs.readFileSync(prismaPath, 'utf8') : '';
+    const provider = detectPrismaProvider(existingSchema);
+    const prismaFragment = this.prismaGen.generate(blueprint, { existingSchema, provider });
+    if (prismaFragment && !dryRun) {
       this.appendToFile(prismaPath, `\n${prismaFragment}\n`);
     }
-    generated.push(prismaPath);
+    if (prismaFragment) generated.push(prismaPath);
 
     // 2. Resource definition file
     const resourcePath = path.join(projectRoot, 'src', 'resources', `${model}Resource.ts`);
@@ -232,5 +237,25 @@ export class BlueprintRunner {
     if (!options.silent) {
       console.log(message);
     }
+  }
+}
+
+/**
+ * Parse the Prisma datasource provider out of an existing schema. Defaults
+ * to `postgresql` when the block is missing or unrecognised. Used so that
+ * the schema generator emits `Float` instead of `Decimal` on SQLite.
+ */
+export function detectPrismaProvider(schema: string): 'sqlite' | 'postgresql' | 'mysql' | 'sqlserver' | 'mongodb' {
+  const m = schema.match(/datasource\s+\w+\s*\{[^}]*provider\s*=\s*"([^"]+)"/m);
+  const found = (m?.[1] ?? '').toLowerCase();
+  switch (found) {
+    case 'sqlite':
+    case 'postgresql':
+    case 'mysql':
+    case 'sqlserver':
+    case 'mongodb':
+      return found;
+    default:
+      return 'postgresql';
   }
 }
